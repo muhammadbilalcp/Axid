@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Axid AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #000;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .app-view { display: none; width: 100%; }
+        .app-view.active-view { display: flex; }
+
+        @keyframes blink { 0%,50%{opacity:1} 51%,100%{opacity:0} }
+        .typing-cursor {
+            display: inline-block; width: 2px; height: 1em;
+            background: #a1a1aa; margin-left: 2px;
+            animation: blink 1s infinite; vertical-align: text-bottom;
+        }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+        .msg-appear { animation: fadeUp 0.25s ease-out; }
+
+        @keyframes spinIn { from{opacity:0;transform:scale(.95)} to{opacity:1;transform:scale(1)} }
+        .modal-appear { animation: spinIn 0.2s ease-out; }
+
+        /* auth overlay */
+        #auth-overlay {
+            position: fixed; inset: 0; z-index: 200;
+            background: #000; display: flex;
+            align-items: center; justify-content: center;
+        }
+        #auth-overlay.hidden { display: none; }
+
+        /* error shake */
+        @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+        .shake { animation: shake .3s ease; }
+
+        input:-webkit-autofill,
+        input:-webkit-autofill:hover,
+        input:-webkit-autofill:focus {
+            -webkit-box-shadow: 0 0 0 1000px #111 inset;
+            -webkit-text-fill-color: #fff;
+        }
+    </style>
+</head>
+<body class="text-zinc-200 min-h-screen flex flex-col bg-black overflow-x-hidden">
+
+<!-- ===================== AUTH OVERLAY ===================== -->
+<div id="auth-overlay">
+    <div class="w-full max-w-sm px-6">
+
+        <!-- Logo -->
+        <div class="flex items-center justify-center space-x-2 mb-10">
+            <div class="w-2.5 h-2.5 rounded-full bg-white animate-pulse"></div>
+            <span class="text-white font-bold text-xl tracking-tight">Axid AI</span>
+        </div>
+
+        <!-- AUTH ERROR -->
+        <div id="auth-error" class="hidden mb-4 bg-red-950/60 border border-red-800 text-red-300 text-sm rounded-xl px-4 py-3"></div>
+
+        <!-- LOGIN FORM -->
+        <div id="form-login" class="modal-appear">
+            <h2 class="text-2xl font-bold text-white mb-1">Welcome back</h2>
+            <p class="text-zinc-500 text-sm mb-8">Sign in to your Axid AI account</p>
+
+            <form id="login-form" class="space-y-4" onsubmit="handleLogin(event)">
+                <div class="space-y-1">
+                    <label class="text-xs text-zinc-400 font-medium">Email</label>
+                    <input type="email" id="login-email" required placeholder="you@example.com"
+                        class="w-full bg-[#111] border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors" />
+                </div>
+                <div class="space-y-1">
+                    <label class="text-xs text-zinc-400 font-medium">Password</label>
+                    <div class="relative">
+                        <input type="password" id="login-password" required placeholder="••••••••"
+                            class="w-full bg-[#111] border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors pr-10" />
+                        <button type="button" onclick="togglePw('login-password')" class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                            <i class="fa-regular fa-eye text-sm"></i>
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" id="login-btn"
+                    class="w-full bg-white text-black font-semibold text-sm py-3 rounded-xl hover:bg-zinc-100 transition-all flex items-center justify-center space-x-2 mt-2">
+                    <span>Sign in</span>
+                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
+            </form>
+
+            <p class="text-center text-zinc-500 text-sm mt-6">
+                Don't have an account?
+                <button onclick="showAuthForm('signup')" class="text-white hover:underline font-medium ml-1">Sign up</button>
+            </p>
+        </div>
+
+        <!-- SIGNUP FORM -->
+        <div id="form-signup" class="hidden modal-appear">
+            <h2 class="text-2xl font-bold text-white mb-1">Create account</h2>
+            <p class="text-zinc-500 text-sm mb-8">Join Axid AI — it's free</p>
+
+            <form id="signup-form" class="space-y-4" onsubmit="handleSignup(event)">
+                <div class="space-y-1">
+                    <label class="text-xs text-zinc-400 font-medium">Name</label>
+                    <input type="text" id="signup-name" required placeholder="Your name"
+                        class="w-full bg-[#111] border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors" />
+                </div>
+                <div class="space-y-1">
+                    <label class="text-xs text-zinc-400 font-medium">Email</label>
+                    <input type="email" id="signup-email" required placeholder="you@example.com"
+                        class="w-full bg-[#111] border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors" />
+                </div>
+                <div class="space-y-1">
+                    <label class="text-xs text-zinc-400 font-medium">Password</label>
+                    <div class="relative">
+                        <input type="password" id="signup-password" required placeholder="Min. 6 characters"
+                            class="w-full bg-[#111] border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm placeholder-zinc-600 focus:outline-none focus:border-zinc-600 transition-colors pr-10" />
+                        <button type="button" onclick="togglePw('signup-password')" class="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                            <i class="fa-regular fa-eye text-sm"></i>
+                        </button>
+                    </div>
+                </div>
+                <button type="submit" id="signup-btn"
+                    class="w-full bg-white text-black font-semibold text-sm py-3 rounded-xl hover:bg-zinc-100 transition-all flex items-center justify-center space-x-2 mt-2">
+                    <span>Create account</span>
+                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
+            </form>
+
+            <p class="text-center text-zinc-500 text-sm mt-6">
+                Already have an account?
+                <button onclick="showAuthForm('login')" class="text-white hover:underline font-medium ml-1">Sign in</button>
+            </p>
+        </div>
+
+    </div>
+</div>
+
+<!-- ===================== MAIN APP ===================== -->
+<div id="app" class="hidden flex flex-col min-h-screen">
+
+    <!-- TOP NAV -->
+    <nav id="top-nav" class="border-b border-zinc-900 bg-black/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
+        <div class="flex items-center space-x-2 cursor-pointer" onclick="switchView('home')">
+            <div class="w-2 h-2 rounded-full bg-white animate-pulse"></div>
+            <span class="text-white font-bold text-lg tracking-tight">Axid AI</span>
+        </div>
+        <div class="flex items-center space-x-5 text-sm font-medium text-zinc-400">
+            <button onclick="switchView('home')" class="nav-btn hover:text-white transition-colors text-white" id="btn-home">Home</button>
+            <button onclick="switchView('about')" class="nav-btn hover:text-white transition-colors" id="btn-about">About</button>
+            <button onclick="requireAuth('chat')" class="nav-btn hover:text-white transition-colors" id="btn-chat">Chat</button>
+            <button onclick="switchView('contact')" class="nav-btn hover:text-white transition-colors" id="btn-contact">Contact</button>
+            <button onclick="switchView('feedback')" class="nav-btn hover:text-white transition-colors" id="btn-feedback">Feedback</button>
+            <div class="flex items-center space-x-3 ml-2 pl-4 border-l border-zinc-800">
+                <div class="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+                    <span id="nav-avatar" class="text-xs font-semibold text-zinc-300">?</span>
+                </div>
+                <button onclick="handleSignOut()" class="text-zinc-400 hover:text-white transition-colors text-sm font-medium">Sign out</button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- VIEWS -->
+    <main class="flex-1 flex flex-col items-center justify-center w-full relative">
+
+        <!-- HOME -->
+        <section id="view-home" class="app-view active-view w-full max-w-4xl px-6 py-20 flex-col items-center justify-center text-center space-y-8">
+            <div class="inline-flex items-center space-x-2 bg-zinc-900/80 border border-zinc-800 text-zinc-400 text-xs px-4 py-1.5 rounded-full">
+                <span class="w-1.5 h-1.5 rounded-full bg-zinc-500"></span>
+                <span>Now in early access</span>
+            </div>
+            <h1 class="text-6xl md:text-7xl font-bold tracking-tight text-white py-2">Axid AI</h1>
+            <p class="text-zinc-400 text-lg md:text-xl max-w-lg font-light">
+                Your futuristic AI assistant for everything.
+            </p>
+            <div class="pt-4 flex flex-wrap items-center justify-center gap-4 text-sm font-medium">
+                <button onclick="requireAuth('chat')" class="bg-white text-black px-6 py-3 rounded-xl font-semibold flex items-center space-x-2 hover:bg-zinc-200 transition-all">
+                    <span>Start Chatting</span>
+                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                </button>
+                <button onclick="switchView('about')" class="text-zinc-400 hover:text-white transition-colors px-4 py-3">
+                    Learn more
+                </button>
+                <a href="https://youtube.com/@axidaiofficial" target="_blank" class="text-zinc-400 hover:text-white transition-colors px-4 py-3 flex items-center space-x-2">
+                    <i class="fa-brands fa-youtube text-red-500"></i>
+                    <span>YouTube</span>
+                </a>
+                <a href="https://instagram.com/axidaiofficial" target="_blank" class="text-zinc-400 hover:text-white transition-colors px-4 py-3 flex items-center space-x-2">
+                    <i class="fa-brands fa-instagram text-pink-500"></i>
+                    <span>Instagram</span>
+                </a>
+            </div>
+        </section>
+
+        <!-- ABOUT -->
+        <section id="view-about" class="app-view w-full max-w-4xl px-6 py-16 flex-col space-y-10">
+            <div class="space-y-4">
+                <h2 class="text-4xl font-bold tracking-tight text-white">About Axid AI</h2>
+                <p class="text-zinc-400 max-w-2xl leading-relaxed text-base font-light">
+                    Axid AI is your all-in-one futuristic AI assistant — designed to feel calm, professional, and fast.
+                </p>
+            </div>
+            <div class="border border-zinc-900 rounded-2xl overflow-hidden grid grid-cols-1 md:grid-cols-2 bg-zinc-950/40">
+                <div class="p-8 border-b border-zinc-900 md:border-r space-y-2">
+                    <h3 class="text-white font-medium">Learning</h3>
+                    <p class="text-zinc-500 text-sm font-light">Summaries, study guides, flashcards, and clear explanations on any subject.</p>
+                </div>
+                <div class="p-8 border-b border-zinc-900 space-y-2">
+                    <h3 class="text-white font-medium">Chatting</h3>
+                    <p class="text-zinc-500 text-sm font-light">Friendly conversation, brainstorming, and ideation whenever you need a partner.</p>
+                </div>
+                <div class="p-8 border-b border-zinc-900 md:border-r space-y-2">
+                    <h3 class="text-white font-medium">Coding</h3>
+                    <p class="text-zinc-500 text-sm font-light">Write, debug, refactor, and understand code across many languages.</p>
+                </div>
+                <div class="p-8 border-b border-zinc-900 space-y-2">
+                    <h3 class="text-white font-medium">Creativity</h3>
+                    <p class="text-zinc-500 text-sm font-light">Movie ideas, stories, Roblox help, lyrics, image generation and more.</p>
+                </div>
+                <div class="p-8 border-b border-zinc-900 md:border-b-0 md:border-r space-y-2">
+                    <h3 class="text-white font-medium">Everyday tasks</h3>
+                    <p class="text-zinc-500 text-sm font-light">Plan trips, draft emails, organize to-dos, and answer quick questions.</p>
+                </div>
+                <div class="p-8 space-y-2">
+                    <h3 class="text-white font-medium">Image generation</h3>
+                    <p class="text-zinc-500 text-sm font-light">Just ask Axid to draw or generate an image — it handles the rest.</p>
+                </div>
+            </div>
+            <div>
+                <button onclick="requireAuth('chat')" class="bg-white text-black text-sm px-6 py-2.5 rounded-xl font-medium hover:bg-zinc-200 transition-all">Start chatting</button>
+            </div>
+        </section>
+
+        <!-- CHAT (fullscreen overlay) -->
+        <section id="view-chat" class="app-view hidden fixed inset-0 w-full h-full bg-black z-50 flex-row">
+            <!-- Sidebar -->
+            <aside class="w-64 border-r border-zinc-900 bg-[#050505] flex flex-col h-full shrink-0">
+                <div class="p-4 flex flex-col flex-1 min-h-0">
+                    <div class="flex items-center justify-between mb-5 px-1">
+                        <div class="flex items-center space-x-2 cursor-pointer" onclick="switchView('home')">
+                            <div class="w-1.5 h-1.5 rounded-full bg-white"></div>
+                            <span class="text-white font-bold text-sm tracking-tight">Axid AI</span>
+                        </div>
+                        <button onclick="switchView('home')" class="text-zinc-500 hover:text-white transition-colors">
+                            <i class="fa-solid fa-xmark text-sm"></i>
+                        </button>
+                    </div>
+
+                    <button onclick="startNewChat()" class="w-full text-left bg-zinc-900 border border-zinc-800 text-zinc-200 rounded-xl px-4 py-2.5 text-sm font-medium hover:bg-zinc-800 transition-colors flex items-center space-x-2 mb-5">
+                        <i class="fa-solid fa-plus text-xs text-zinc-400"></i>
+                        <span>New chat</span>
+                    </button>
+
+                    <div class="text-zinc-600 text-xs font-semibold tracking-wider uppercase px-1 mb-3">History</div>
+                    <div id="chat-history" class="flex-1 overflow-y-auto space-y-0.5 text-sm font-light text-zinc-400"></div>
+                </div>
+
+                <!-- Sidebar bottom: user + nav -->
+                <div class="p-4 border-t border-zinc-900 space-y-1 text-sm font-medium text-zinc-400">
+                    <div class="flex items-center space-x-3 px-2.5 py-2 mb-2">
+                        <div class="w-7 h-7 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center shrink-0">
+                            <span id="sidebar-avatar" class="text-xs font-semibold text-zinc-300">?</span>
+                        </div>
+                        <span id="sidebar-email" class="text-xs text-zinc-500 truncate"></span>
+                    </div>
+                    <button onclick="switchView('home')" class="w-full flex items-center space-x-3 p-2.5 rounded-xl hover:bg-zinc-900 hover:text-white transition-colors">
+                        <i class="fa-solid fa-house text-zinc-500 w-4"></i>
+                        <span>Home</span>
+                    </button>
+                    <button onclick="switchView('about')" class="w-full flex items-center space-x-3 p-2.5 rounded-xl hover:bg-zinc-900 hover:text-white transition-colors">
+                        <i class="fa-solid fa-circle-info text-zinc-500 w-4"></i>
+                        <span>About</span>
+                    </button>
+                    <button onclick="handleSignOut()" class="w-full flex items-center space-x-3 p-2.5 rounded-xl hover:bg-zinc-900 hover:text-white transition-colors">
+                        <i class="fa-solid fa-arrow-right-from-bracket text-zinc-500 w-4"></i>
+                        <span>Sign out</span>
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Chat workspace -->
+            <div class="flex-1 flex flex-col h-full bg-black min-w-0">
+                <div id="chat-canvas" class="flex-1 overflow-y-auto px-6 py-8 flex flex-col">
+                    <div id="default-chat-greeting" class="flex-1 flex flex-col items-center justify-center text-center space-y-3 max-w-lg mx-auto">
+                        <h2 class="text-3xl font-bold text-white">How can I help you today?</h2>
+                        <p class="text-zinc-500 text-sm font-light">Ask anything. I can help with coding, learning, creativity, and more.</p>
+                        <!-- Quick prompts -->
+                        <div class="grid grid-cols-2 gap-3 mt-6 w-full max-w-md text-left">
+                            <button onclick="quickPrompt('Explain how AI works')" class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors text-left">
+                                <i class="fa-solid fa-brain text-zinc-500 mb-2 text-xs"></i>
+                                <div class="font-medium text-xs text-zinc-400">Explain</div>
+                                <div>How AI works</div>
+                            </button>
+                            <button onclick="quickPrompt('Write a Python function to sort a list')" class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors text-left">
+                                <i class="fa-solid fa-code text-zinc-500 mb-2 text-xs"></i>
+                                <div class="font-medium text-xs text-zinc-400">Code</div>
+                                <div>Python list sorter</div>
+                            </button>
+                            <button onclick="quickPrompt('Tell me a programming joke')" class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors text-left">
+                                <i class="fa-solid fa-face-laugh text-zinc-500 mb-2 text-xs"></i>
+                                <div class="font-medium text-xs text-zinc-400">Fun</div>
+                                <div>Programming joke</div>
+                            </button>
+                            <button onclick="quickPrompt('Help me brainstorm a creative story idea')" class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 text-sm text-zinc-300 hover:bg-zinc-800 transition-colors text-left">
+                                <i class="fa-solid fa-pen-nib text-zinc-500 mb-2 text-xs"></i>
+                                <div class="font-medium text-xs text-zinc-400">Create</div>
+                                <div>Story idea</div>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="chat-logs" class="hidden w-full max-w-2xl mx-auto flex flex-col space-y-5 pb-4"></div>
+                </div>
+
+                <!-- Input bar -->
+                <div class="w-full max-w-2xl mx-auto px-4 pb-6 pt-2">
+                    <form onsubmit="handleChatSubmit(event)" class="w-full bg-[#111] border border-zinc-800 rounded-2xl px-4 py-3 flex items-end gap-3">
+                        <textarea id="chat-input" rows="1" placeholder="Message Axid AI..."
+                            class="flex-1 bg-transparent text-white placeholder-zinc-500 focus:outline-none text-sm font-light resize-none overflow-hidden leading-relaxed"
+                            onkeydown="handleInputKey(event)"
+                            oninput="autoResize(this)"></textarea>
+                        <button type="submit" id="send-btn" class="w-8 h-8 rounded-xl bg-zinc-800 hover:bg-white text-zinc-400 hover:text-black flex items-center justify-center transition-all shrink-0 mb-0.5">
+                            <i class="fa-solid fa-arrow-up text-xs"></i>
+                        </button>
+                    </form>
+                    <p class="text-center text-zinc-700 text-xs mt-2">Axid AI can make mistakes. Verify important info.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- FEEDBACK -->
+        <section id="view-feedback" class="app-view w-full max-w-4xl px-6 py-16 flex-col text-center space-y-8">
+            <div class="space-y-2">
+                <h2 class="text-4xl font-bold text-white">Feedback</h2>
+                <p class="text-zinc-500 text-sm font-light">Help us improve Axid AI by sharing your experience.</p>
+            </div>
+            <div class="max-w-xl mx-auto w-full bg-[#09090b] border border-zinc-900 rounded-2xl p-8 space-y-6 text-left">
+                <div>
+                    <p class="text-xs text-zinc-400 font-medium mb-3 text-center">Your rating</p>
+                    <div class="flex items-center justify-center space-x-3 text-3xl text-zinc-700">
+                        <i class="fa-regular fa-star cursor-pointer hover:text-yellow-400 star-btn transition-colors" onclick="rateStars(1)"></i>
+                        <i class="fa-regular fa-star cursor-pointer hover:text-yellow-400 star-btn transition-colors" onclick="rateStars(2)"></i>
+                        <i class="fa-regular fa-star cursor-pointer hover:text-yellow-400 star-btn transition-colors" onclick="rateStars(3)"></i>
+                        <i class="fa-regular fa-star cursor-pointer hover:text-yellow-400 star-btn transition-colors" onclick="rateStars(4)"></i>
+                        <i class="fa-regular fa-star cursor-pointer hover:text-yellow-400 star-btn transition-colors" onclick="rateStars(5)"></i>
+                    </div>
+                </div>
+                <div class="space-y-1">
+                    <label class="text-xs text-zinc-400 font-medium">Your feedback</label>
+                    <textarea id="feedback-text" rows="4" placeholder="Write your feedback here..."
+                        class="w-full bg-black border border-zinc-800 rounded-xl p-4 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-700 resize-none font-light"></textarea>
+                </div>
+                <button onclick="submitFeedback()" class="w-full bg-white text-black font-semibold text-sm py-3 rounded-xl hover:bg-zinc-200 transition-all">Submit Feedback</button>
+            </div>
+        </section>
+
+        <!-- CONTACT -->
+        <section id="view-contact" class="app-view w-full max-w-5xl px-6 py-16 flex-col text-center space-y-10">
+            <div class="space-y-2">
+                <h2 class="text-4xl font-bold text-white">Contact Axid AI</h2>
+                <p class="text-zinc-400 text-sm font-light max-w-lg mx-auto">Need help, have feedback, or want to collaborate? Reach out below.</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5 text-left w-full">
+                <div class="bg-[#09090b] border border-zinc-900 rounded-2xl p-6 flex flex-col justify-between h-52">
+                    <div class="space-y-3">
+                        <div class="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+                            <i class="fa-brands fa-whatsapp text-green-500"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-white font-medium">WhatsApp</h3>
+                            <p class="text-zinc-500 text-xs mt-0.5">Chat directly with us</p>
+                        </div>
+                    </div>
+                    <a href="https://wa.me/#" target="_blank" class="w-full bg-zinc-900 text-zinc-300 text-center text-xs py-2.5 rounded-xl block hover:bg-zinc-800 transition-colors">Chat on WhatsApp</a>
+                </div>
+                <div class="bg-[#09090b] border border-zinc-900 rounded-2xl p-6 flex flex-col justify-between h-52">
+                    <div class="space-y-3">
+                        <div class="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+                            <i class="fa-regular fa-envelope text-zinc-400"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-white font-medium">Email</h3>
+                            <p class="text-zinc-400 text-xs mt-0.5 break-all">muhammadbilalcp@gmail.com</p>
+                        </div>
+                    </div>
+                    <a href="mailto:muhammadbilalcp@gmail.com" class="w-full bg-zinc-900 text-zinc-300 text-center text-xs py-2.5 rounded-xl block hover:bg-zinc-800 transition-colors">Send an Email</a>
+                </div>
+                <div class="bg-[#09090b] border border-zinc-900 rounded-2xl p-6 flex flex-col justify-between h-52">
+                    <div class="space-y-3">
+                        <div class="w-10 h-10 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+                            <i class="fa-brands fa-instagram text-pink-500"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-white font-medium">Instagram</h3>
+                            <p class="text-zinc-400 text-xs mt-0.5">@axidaiofficial</p>
+                        </div>
+                    </div>
+                    <a href="https://instagram.com/axidaiofficial" target="_blank" class="w-full bg-zinc-900 text-zinc-300 text-center text-xs py-2.5 rounded-xl block hover:bg-zinc-800 transition-colors">Open Instagram</a>
+                </div>
+            </div>
+        </section>
+
+    </main>
+</div><!-- end #app -->
+
+<script>
+// ===================== SUPABASE INIT =====================
+const SUPABASE_URL = 'https://0ec90b57d6e95fcbda19832f.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJib2x0IiwicmVmIjoiMGVjOTBiNTdkNmU5NWZjYmRhMTk4MzJmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg4ODE1NzQsImV4cCI6MTc1ODg4MTU3NH0.9I8-U0x86Ak8t2DGaIk0HfvTSLsAyzdnz-Nw00mMkKw';
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let currentUser = null;
+let currentSessionId = null;
+
+// ===================== AUTH INIT =====================
+async function initAuth() {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) {
+        onSignedIn(session.user);
+    } else {
+        showAuthOverlay();
+    }
+
+    sb.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_IN' && session) onSignedIn(session.user);
+        if (event === 'SIGNED_OUT') onSignedOut();
+    });
+}
+
+function onSignedIn(user) {
+    currentUser = user;
+    document.getElementById('auth-overlay').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    const initials = (user.user_metadata?.name || user.email || '?')[0].toUpperCase();
+    document.getElementById('nav-avatar').textContent = initials;
+    document.getElementById('sidebar-avatar').textContent = initials;
+    document.getElementById('sidebar-email').textContent = user.email || '';
+    loadChatHistory();
+}
+
+function onSignedOut() {
+    currentUser = null;
+    currentSessionId = null;
+    document.getElementById('app').classList.add('hidden');
+    showAuthOverlay();
+    showAuthForm('login');
+}
+
+function showAuthOverlay() {
+    document.getElementById('auth-overlay').classList.remove('hidden');
+}
+
+// ===================== AUTH FORMS =====================
+function showAuthForm(which) {
+    clearAuthError();
+    document.getElementById('form-login').classList.toggle('hidden', which !== 'login');
+    document.getElementById('form-signup').classList.toggle('hidden', which !== 'signup');
+}
+
+function setAuthError(msg) {
+    const el = document.getElementById('auth-error');
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    el.classList.add('shake');
+    setTimeout(() => el.classList.remove('shake'), 400);
+}
+
+function clearAuthError() {
+    const el = document.getElementById('auth-error');
+    el.textContent = '';
+    el.classList.add('hidden');
+}
+
+function setAuthLoading(btnId, loading) {
+    const btn = document.getElementById(btnId);
+    btn.disabled = loading;
+    btn.innerHTML = loading
+        ? '<i class="fa-solid fa-circle-notch fa-spin text-sm"></i>'
+        : btn.dataset.label;
+}
+
+async function handleLogin(e) {
+    e.preventDefault();
+    clearAuthError();
+    const btn = document.getElementById('login-btn');
+    btn.disabled = true;
+    const origHTML = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-sm"></i>';
+
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    if (error) {
+        setAuthError(error.message);
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+    }
+}
+
+async function handleSignup(e) {
+    e.preventDefault();
+    clearAuthError();
+    const btn = document.getElementById('signup-btn');
+    btn.disabled = true;
+    const origHTML = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-sm"></i>';
+
+    const name = document.getElementById('signup-name').value.trim();
+    const email = document.getElementById('signup-email').value.trim();
+    const password = document.getElementById('signup-password').value;
+
+    if (password.length < 6) {
+        setAuthError('Password must be at least 6 characters.');
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+        return;
+    }
+
+    const { error } = await sb.auth.signUp({ email, password, options: { data: { name } } });
+    if (error) {
+        setAuthError(error.message);
+        btn.disabled = false;
+        btn.innerHTML = origHTML;
+    }
+}
+
+async function handleSignOut() {
+    await sb.auth.signOut();
+}
+
+function togglePw(id) {
+    const input = document.getElementById(id);
+    input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+// ===================== VIEW ROUTING =====================
+function switchView(viewId) {
+    const views = document.querySelectorAll('.app-view');
+    views.forEach(v => {
+        v.classList.remove('active-view');
+        if (v.id !== 'view-chat') v.classList.add('hidden');
+    });
+
+    const target = document.getElementById(`view-${viewId}`);
+    if (!target) return;
+
+    if (viewId === 'chat') {
+        target.classList.remove('hidden');
+        target.classList.add('active-view');
+        document.getElementById('top-nav').style.display = 'none';
+    } else {
+        target.classList.remove('hidden');
+        target.classList.add('active-view');
+        document.getElementById('top-nav').style.display = 'flex';
+        document.getElementById('view-chat').classList.add('hidden');
+    }
+
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('text-white'));
+    const targetBtn = document.getElementById(`btn-${viewId}`);
+    if (targetBtn) targetBtn.classList.add('text-white');
+}
+
+function requireAuth(viewId) {
+    if (!currentUser) {
+        showAuthOverlay();
+        return;
+    }
+    switchView(viewId);
+}
+
+// ===================== AI ENGINE =====================
+const AI = {
+    knowledge: {
+        creator:      { keys: ['created','made you','maker','creator','built you','developed'], replies: ['I was created by Muhammad Bilal.', 'Muhammad Bilal built me to be your futuristic AI assistant.'] },
+        greetings:    { keys: ['hi','hello','hey','yo','sup','howdy','good morning','good evening','good afternoon'], replies: ['Hey! What are we working on today?', 'Hello! Ready to help. What do you need?', 'Hey there! Coding, learning, or just chatting?'] },
+        farewell:     { keys: ['bye','goodbye','see you','later','gotta go','take care','cya'], replies: ['Goodbye! Come back anytime.', 'Later! Happy building.', 'Take care!'] },
+        thanks:       { keys: ['thank','thanks','appreciate','helpful','great job','nice'], replies: ['You are welcome!', 'Glad I could help!', 'No problem at all. Anything else?'] },
+        roblox:       { keys: ['roblox','luau','roblox studio','obby','baseplate'], replies: ['Roblox dev! Are we working on game mechanics, UI, or scripting?', 'Luau scripting? Drop the code and let us debug it together.'] },
+        quran:        { keys: ['quran','holy book','islamic','prophet','islam','surah','ayah'], replies: ['The Quran references previous scriptures including the Torah, Psalms, and Gospel. What would you like to explore?', 'A profound topic. What specific question can I answer?'] },
+        news:         { keys: ['news','latest','current events','headlines','happening'], replies: ['I do not have real-time news, but I can discuss topics or help you find reliable sources. What topic?'] },
+        coding:       { keys: ['code','programming','debug','error','bug','script','function','api','library'], replies: ['Let us debug this! Share the code or error and we will fix it together.', 'Coding time. What language or framework are we working with?'] },
+        python:       { keys: ['python','pandas','flask','django','pip','conda'], replies: ['Python! What are we building — data science, web dev, or scripting?', 'I can help with Python. Show me the code or describe the problem.'] },
+        javascript:   { keys: ['javascript','react','vue','angular','node','npm','typescript'], replies: ['JavaScript or TypeScript? Frontend, backend, or both?', 'I can help with JS/TS. What are we building?'] },
+        learning:     { keys: ['learn','teach','explain','how does','what is','tutorial','guide','understand','study'], replies: ['What topic should we explore?', 'I love teaching. What do you want to understand better?'] },
+        math:         { keys: ['math','calculate','equation','formula','algebra','geometry','calculus','percent','number'], replies: ['Math time! What is the problem?', 'Drop the equation and let us solve it.'] },
+        creative:     { keys: ['story','poem','lyrics','creative','write','song','movie','novel','caption'], replies: ['Creative mode! What are we crafting — story, poem, or brainstorm?', 'Let us make something great. Tell me your vision.'] },
+        image:        { keys: ['image','picture','draw','art','design','generate','visual','photo'], replies: ['I can help you build a detailed image prompt for tools like DALL-E or Midjourney. Describe what you want.'] },
+        joke:         { keys: ['joke','funny','laugh','humor','meme'], replies: ["Why do programmers prefer dark mode? Because light attracts bugs!", "Why did the developer go broke? He used up all his cache!", "There are 10 types of people: those who understand binary and those who don't!"] },
+        weather:      { keys: ['weather','temperature','rain','sunny','forecast','climate'], replies: ['I do not have real-time weather. Try a weather app for your area. I can discuss climate topics though!'] },
+        time:         { keys: ['time','date','today','day','what day'], replies: [`Today is ${new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}.`] },
+        capabilities: { keys: ['what can you','your features','abilities','your skills','help me with'], replies: ['I can: help with coding, explain concepts, brainstorm ideas, assist with math, write creatively, answer questions, and much more. What do you need?'] },
+        identity:     { keys: ['who are you','what are you','tell me about yourself','what is axid'], replies: ['I am Axid AI, a futuristic assistant created by Muhammad Bilal. I help with coding, learning, creativity, and everyday tasks.'] }
+    },
+
+    reply(message) {
+        const lower = message.toLowerCase();
+        for (const [, data] of Object.entries(this.knowledge)) {
+            for (const key of data.keys) {
+                if (lower.includes(key)) {
+                    const arr = data.replies;
+                    return arr[Math.floor(Math.random() * arr.length)];
+                }
+            }
+        }
+        return this.dynamic(message);
+    },
+
+    dynamic(message) {
+        const opts = [
+            `Interesting! Let us dig into "${message.trim()}" — what specifically do you want to know or build?`,
+            `Got it. Tell me more about what you are trying to accomplish with "${message.trim()}"?`,
+            `"${message.trim()}" — solid topic. Are we exploring, building, or problem-solving here?`,
+            `I can help with that. Could you give me more context on "${message.trim()}"?`
+        ];
+        return opts[Math.floor(Math.random() * opts.length)];
+    }
+};
+
+// ===================== CHAT HISTORY (Supabase) =====================
+async function loadChatHistory() {
+    if (!currentUser) return;
+    const { data } = await sb.from('chat_sessions')
+        .select('id, title, created_at')
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+    renderSidebarHistory(data || []);
+}
+
+function renderSidebarHistory(sessions) {
+    const container = document.getElementById('chat-history');
+    if (!sessions.length) {
+        container.innerHTML = '<p class="text-xs text-zinc-700 px-2 py-1">No history yet</p>';
+        return;
+    }
+    container.innerHTML = sessions.map(s => `
+        <div onclick="loadSession('${s.id}')"
+            class="truncate px-2 py-2 rounded-lg hover:bg-zinc-900 cursor-pointer flex items-center space-x-2 ${s.id === currentSessionId ? 'bg-zinc-900/60 text-zinc-200' : ''}">
+            <i class="fa-regular fa-comment text-xs text-zinc-600 shrink-0"></i>
+            <span class="truncate text-sm">${escapeHtml(s.title)}</span>
+        </div>
+    `).join('');
+}
+
+async function loadSession(sessionId) {
+    currentSessionId = sessionId;
+    const { data: messages } = await sb.from('chat_messages')
+        .select('role, content')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true });
+
+    document.getElementById('default-chat-greeting').classList.add('hidden');
+    const logs = document.getElementById('chat-logs');
+    logs.classList.remove('hidden');
+    logs.innerHTML = '';
+
+    (messages || []).forEach(m => {
+        if (m.role === 'user') appendUserMsg(m.content);
+        else appendAIMsg(m.content, false);
+    });
+
+    const canvas = document.getElementById('chat-canvas');
+    canvas.scrollTop = canvas.scrollHeight;
+
+    await loadChatHistory();
+}
+
+async function createSession(title) {
+    const { data, error } = await sb.from('chat_sessions')
+        .insert({ user_id: currentUser.id, title: title.substring(0, 60) })
+        .select('id')
+        .single();
+    if (error) return null;
+    return data.id;
+}
+
+async function saveMessage(sessionId, role, content) {
+    await sb.from('chat_messages').insert({
+        session_id: sessionId,
+        user_id: currentUser.id,
+        role,
+        content
+    });
+}
+
+// ===================== CHAT UI =====================
+function handleInputKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        document.querySelector('#view-chat form').requestSubmit();
+    }
+}
+
+function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+async function handleChatSubmit(e) {
+    e.preventDefault();
+    const input = document.getElementById('chat-input');
+    const msg = input.value.trim();
+    if (!msg) return;
+    input.value = '';
+    input.style.height = 'auto';
+    await executeChatQuery(msg);
+}
+
+function quickPrompt(msg) {
+    executeChatQuery(msg);
+}
+
+async function executeChatQuery(userMessage) {
+    if (!currentUser) return;
+
+    document.getElementById('default-chat-greeting').classList.add('hidden');
+    const logs = document.getElementById('chat-logs');
+    logs.classList.remove('hidden');
+
+    // Create session if first message
+    if (!currentSessionId) {
+        currentSessionId = await createSession(userMessage);
+        await loadChatHistory();
+    }
+
+    appendUserMsg(userMessage);
+    await saveMessage(currentSessionId, 'user', userMessage);
+
+    // Typing indicator
+    const typingId = 'typing-' + Date.now();
+    const typingEl = document.createElement('div');
+    typingEl.id = typingId;
+    typingEl.className = 'flex flex-col items-start w-full space-y-1 msg-appear';
+    typingEl.innerHTML = `
+        <div class="flex items-center space-x-1.5 pl-1">
+            <span class="w-1 h-1 rounded-full bg-zinc-500 animate-bounce" style="animation-delay:0ms"></span>
+            <span class="w-1 h-1 rounded-full bg-zinc-500 animate-bounce" style="animation-delay:150ms"></span>
+            <span class="w-1 h-1 rounded-full bg-zinc-500 animate-bounce" style="animation-delay:300ms"></span>
+        </div>`;
+    logs.appendChild(typingEl);
+    scrollBottom();
+
+    const response = AI.reply(userMessage);
+
+    await new Promise(r => setTimeout(r, 400 + Math.random() * 400));
+    typingEl.remove();
+
+    appendAIMsg(response, true);
+    await saveMessage(currentSessionId, 'assistant', response);
+}
+
+function appendUserMsg(content) {
+    const logs = document.getElementById('chat-logs');
+    const el = document.createElement('div');
+    el.className = 'flex justify-end w-full msg-appear';
+    el.innerHTML = `
+        <div class="bg-zinc-900 border border-zinc-800 rounded-2xl rounded-br-sm px-4 py-2.5 max-w-xl text-zinc-100 text-sm leading-relaxed">
+            ${escapeHtml(content)}
+        </div>`;
+    logs.appendChild(el);
+    scrollBottom();
+}
+
+function appendAIMsg(content, animate = true) {
+    const logs = document.getElementById('chat-logs');
+    const el = document.createElement('div');
+    el.className = `flex flex-col items-start w-full space-y-1${animate ? ' msg-appear' : ''}`;
+
+    const responseEl = document.createElement('div');
+    responseEl.className = 'text-zinc-300 max-w-2xl pl-1 text-sm font-light leading-relaxed';
+
+    el.innerHTML = `<div class="flex items-center space-x-1.5 pl-1 mb-0.5">
+        <span class="w-1.5 h-1.5 rounded-full bg-white"></span>
+        <span class="text-xs text-zinc-500 font-medium">Axid AI</span>
+    </div>`;
+    el.appendChild(responseEl);
+    logs.appendChild(el);
+
+    if (animate) {
+        typeWriter(responseEl, content);
+    } else {
+        responseEl.textContent = content;
+    }
+    scrollBottom();
+}
+
+function typeWriter(element, text, speed = 14) {
+    let i = 0;
+    function type() {
+        if (i < text.length) {
+            element.innerHTML = escapeHtml(text.substring(0, i + 1)) + '<span class="typing-cursor"></span>';
+            i++;
+            setTimeout(type, speed);
+        } else {
+            element.textContent = text;
+        }
+    }
+    type();
+}
+
+function scrollBottom() {
+    const canvas = document.getElementById('chat-canvas');
+    setTimeout(() => { canvas.scrollTop = canvas.scrollHeight; }, 80);
+}
+
+async function startNewChat() {
+    currentSessionId = null;
+    document.getElementById('chat-logs').innerHTML = '';
+    document.getElementById('chat-logs').classList.add('hidden');
+    document.getElementById('default-chat-greeting').classList.remove('hidden');
+    await loadChatHistory();
+}
+
+// ===================== FEEDBACK =====================
+let currentRating = 0;
+function rateStars(val) {
+    currentRating = val;
+    document.querySelectorAll('.star-btn').forEach((s, idx) => {
+        if (idx < val) {
+            s.classList.replace('fa-regular', 'fa-solid');
+            s.classList.add('text-yellow-400');
+            s.classList.remove('text-zinc-700');
+        } else {
+            s.classList.replace('fa-solid', 'fa-regular');
+            s.classList.remove('text-yellow-400');
+            s.classList.add('text-zinc-700');
+        }
+    });
+}
+
+function submitFeedback() {
+    const text = document.getElementById('feedback-text').value.trim();
+    if (!currentRating && !text) { alert('Please add a rating or feedback.'); return; }
+    alert('Thank you! Your feedback helps improve Axid AI.');
+    document.getElementById('feedback-text').value = '';
+    rateStars(0);
+    switchView('home');
+}
+
+// ===================== UTILS =====================
+function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+// ===================== BOOT =====================
+initAuth();
+</script>
+</body>
+</html>
